@@ -5,7 +5,7 @@ venv/
 # data and generated files (too big for git)
 *.csv.gz
 *.csv
-models/
+/models/
 distilbert_out/
 distilbert_grade_model/
 *.png
