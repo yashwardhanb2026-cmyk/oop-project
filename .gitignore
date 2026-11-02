@@ -2,6 +2,10 @@ __pycache__/
 *.pyc
 .venv/
 venv/
+.gradle/
+android/.gradle/
+android/app/build/
+android/build/
 # data and generated files (too big for git)
 *.csv.gz
 *.csv
