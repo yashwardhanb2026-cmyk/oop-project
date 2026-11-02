@@ -1,0 +1,14 @@
+# Ignore non-web directories and Python files on Vercel
+*.py
+requirements.txt
+android/
+mobile_app/
+.agents/
+.github/
+.gradle/
+.venv/
+venv/
+distilbert_out/
+distilbert_grade_model/
+*.csv.gz
+*.csv

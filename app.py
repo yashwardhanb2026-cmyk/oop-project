@@ -238,3 +238,12 @@ class App(tk.Tk):
 
 if __name__ == "__main__":
     App().mainloop()
+
+
+# Top-level exports for Vercel Python runtime compatibility
+def handler(request=None, response=None):
+    return {"status": "ok", "app": "NutriScore ML Web"}
+
+
+app = handler
+application = handler
