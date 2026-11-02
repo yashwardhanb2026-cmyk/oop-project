@@ -1,4 +1,4 @@
-# Core (train.py, predict.py, app.py)
+# Core (train.py, predict.py, desktop_gui.py)
 pandas
 numpy
 scipy
@@ -8,7 +8,7 @@ shap
 matplotlib
 joblib
 
-# GUI + offline OCR (app.py)
+# GUI + offline OCR (desktop_gui.py)
 rapidocr-onnxruntime
 pillow
 opencv-python

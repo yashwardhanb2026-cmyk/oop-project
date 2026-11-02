@@ -37,7 +37,7 @@ Download the APK directly to your phone from **[GitHub Releases](https://github.
 | `export_mobile.py` | Exports calibrated compact ML models for mobile |
 | `train.py` | Loads Open Food Facts, trains and compares models |
 | `predict.py` | `predict_grade()` function that grades a product |
-| `app.py` | Desktop GUI (photo or webcam → OCR → grade) |
+| `desktop_gui.py` | Desktop GUI (photo or webcam → OCR → grade) |
 | `distilbert.py` | Fine-tunes DistilBERT on ingredient text |
 
 ## Install
@@ -82,7 +82,7 @@ Short on RAM? Lower `SAMPLE` at the top of `train.py` (for example `100_000`).
 ## Step 3: Run the app
 
 ```bash
-python app.py
+python desktop_gui.py
 ```
 
 1. Click **Open photo** (or **Capture from webcam**, press SPACE to take the picture).
