@@ -25,26 +25,25 @@ jobs:
           distribution: 'temurin'
           java-version: '17'
 
-      - name: Set up Gradle 8.5
-        uses: gradle/actions/setup-gradle@v3
-        with:
-          gradle-version: 8.5
+      - name: Setup Android SDK
+        uses: android-actions/setup-android@v3
 
       - name: Accept Android SDK Licenses
-        run: |
-          yes | sdkmanager --licenses || true
+        run: yes | sdkmanager --licenses || true
 
       - name: Sync Web & ML Assets to Android APK Bundle
         run: |
           mkdir -p android/app/src/main/assets/www/models
-          cp -r web/index.html web/style.css web/app.js web/manifest.json android/app/src/main/assets/www/
-          cp -r web/models/* android/app/src/main/assets/www/models/
+          cp web/index.html web/style.css web/app.js web/manifest.json android/app/src/main/assets/www/
+          cp web/models/* android/app/src/main/assets/www/models/
           echo "Web and ML models successfully bundled into Android assets."
+
+      - name: Make gradlew executable
+        run: chmod +x android/gradlew
 
       - name: Build Android APK
         working-directory: android
-        run: |
-          gradle assembleRelease --stacktrace
+        run: ./gradlew assembleRelease --stacktrace --no-daemon
 
       - name: Prepare APK for Release
         run: |
@@ -62,18 +61,24 @@ jobs:
       - name: Upload APK as Workflow Artifact
         uses: actions/upload-artifact@v4
         with:
-          name: NutriScore-v1.0.0.apk
+          name: NutriScore-APK
           path: dist/NutriScore-v1.0.0.apk
+
+      - name: Generate Release Tag
+        id: tag
+        run: |
+          TAG="v1.0.0-build.${{ github.run_number }}"
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
 
       - name: Publish GitHub Release
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: v1.0.0
-          name: "NutriScore Mobile App v1.0.0 (Android APK)"
+          tag_name: ${{ steps.tag.outputs.tag }}
+          name: "NutriScore Mobile App ${{ steps.tag.outputs.tag }}"
           body: |
-            # 🍏 NutriScore ML • Android Mobile App (v1.0.0)
+            # 🍏 NutriScore ML • Android Mobile App (${{ steps.tag.outputs.tag }})
 
-            Download the APK directly to your phone: **[NutriScore-v1.0.0.apk](https://github.com/yashwardhanb2026-cmyk/oop-project/releases/download/v1.0.0/NutriScore-v1.0.0.apk)**
+            Download the APK directly to your phone: **NutriScore-v1.0.0.apk** (attached below)
 
             ---
 
