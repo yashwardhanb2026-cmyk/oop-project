@@ -397,7 +397,10 @@ class NutriScoreApp {
     this.history = JSON.parse(localStorage.getItem("nutri_history") || "[]");
     this.cameraStream = null;
     this.isScanning = false;
+    this.scannerMode = 'barcode'; // 'barcode' or 'ocr'
     this.barcodeDetector = null;
+    this.codeReader = null;
+    this.isProcessingOcr = false;
 
     this.initBarcodeDetector();
     this.initElements();
@@ -425,9 +428,24 @@ class NutriScoreApp {
     this.video = document.getElementById("camera-video");
     this.startCamBtn = document.getElementById("start-cam-btn");
     this.stopCamBtn = document.getElementById("stop-cam-btn");
+    this.captureOcrBtn = document.getElementById("capture-ocr-btn");
+    this.uploadLabelBtn = document.getElementById("upload-label-btn");
+    this.labelFileInput = document.getElementById("label-file-input");
+    this.ocrLoadingOverlay = document.getElementById("ocr-loading-overlay");
+    this.ocrStatusText = document.getElementById("ocr-status-text");
+
+    this.modeBarcodeBtn = document.getElementById("mode-barcode-btn");
+    this.modeOcrBtn = document.getElementById("mode-ocr-btn");
+    this.reticleBarcode = document.getElementById("reticle-barcode");
+    this.reticleOcr = document.getElementById("reticle-ocr");
+
     this.barcodeInput = document.getElementById("barcode-input");
     this.lookupBtn = document.getElementById("lookup-btn");
     this.resultCard = document.getElementById("result-card");
+    this.notFoundCard = document.getElementById("not-found-card");
+    this.notFoundCodeBadge = document.getElementById("not-found-code-badge");
+    this.scanIngredientsBtn = document.getElementById("scan-ingredients-btn");
+    this.manualTunerBtn = document.getElementById("manual-tuner-btn");
 
     this.sliders = {
       energy: document.getElementById("slider-energy"),
@@ -461,6 +479,11 @@ class NutriScoreApp {
       });
     });
 
+    if (this.modeBarcodeBtn && this.modeOcrBtn) {
+      this.modeBarcodeBtn.addEventListener("click", () => this.setScannerMode('barcode'));
+      this.modeOcrBtn.addEventListener("click", () => this.setScannerMode('ocr'));
+    }
+
     this.lookupBtn.addEventListener("click", () => {
       const code = this.barcodeInput.value.trim();
       if (code) this.lookupBarcode(code);
@@ -482,6 +505,23 @@ class NutriScoreApp {
 
     this.startCamBtn.addEventListener("click", () => this.startCamera());
     this.stopCamBtn.addEventListener("click", () => this.stopCamera());
+
+    if (this.captureOcrBtn) {
+      this.captureOcrBtn.addEventListener("click", () => this.captureAndRunOCR());
+    }
+
+    if (this.uploadLabelBtn && this.labelFileInput) {
+      this.uploadLabelBtn.addEventListener("click", () => this.labelFileInput.click());
+      this.labelFileInput.addEventListener("change", (e) => this.handleImageUpload(e));
+    }
+
+    if (this.scanIngredientsBtn) {
+      this.scanIngredientsBtn.addEventListener("click", () => this.triggerOcrModeForNotFound());
+    }
+
+    if (this.manualTunerBtn) {
+      this.manualTunerBtn.addEventListener("click", () => this.switchTab('tuner'));
+    }
 
     Object.keys(this.sliders).forEach(key => {
       this.sliders[key].addEventListener("input", () => {
@@ -507,6 +547,32 @@ class NutriScoreApp {
     });
   }
 
+  setScannerMode(mode) {
+    this.scannerMode = mode;
+    if (this.modeBarcodeBtn && this.modeOcrBtn) {
+      this.modeBarcodeBtn.classList.toggle("active", mode === 'barcode');
+      this.modeOcrBtn.classList.toggle("active", mode === 'ocr');
+    }
+    if (this.reticleBarcode && this.reticleOcr) {
+      this.reticleBarcode.style.display = mode === 'barcode' ? 'flex' : 'none';
+      this.reticleOcr.style.display = mode === 'ocr' ? 'flex' : 'none';
+    }
+    if (this.captureOcrBtn) {
+      this.captureOcrBtn.style.display = (mode === 'ocr' && this.isScanning) ? 'inline-flex' : 'none';
+    }
+
+    if (this.isScanning) {
+      if (mode === 'barcode') {
+        this.initZxingReader();
+        this.scanLoop();
+      } else {
+        if (this.codeReader) {
+          try { this.codeReader.reset(); } catch (e) {}
+        }
+      }
+    }
+  }
+
   switchTab(tabId) {
     this.tabs.forEach(t => {
       t.classList.toggle("active", t.getAttribute("data-tab") === tabId);
@@ -523,7 +589,11 @@ class NutriScoreApp {
   async startCamera() {
     try {
       this.cameraStream = await navigator.mediaDevices.getUserMedia({
-        video: { facingMode: { ideal: "environment" }, width: { ideal: 1280 }, height: { ideal: 720 } },
+        video: { 
+          facingMode: { ideal: "environment" }, 
+          width: { ideal: 1920, min: 640 }, 
+          height: { ideal: 1080, min: 480 } 
+        },
         audio: false
       });
       this.video.srcObject = this.cameraStream;
@@ -531,33 +601,60 @@ class NutriScoreApp {
       this.isScanning = true;
       this.startCamBtn.style.display = "none";
       this.stopCamBtn.style.display = "inline-flex";
-      this.scanLoop();
+
+      if (this.scannerMode === 'ocr') {
+        if (this.captureOcrBtn) this.captureOcrBtn.style.display = "inline-flex";
+      } else {
+        this.initZxingReader();
+        this.scanLoop();
+      }
     } catch (err) {
       alert("Camera access denied or unavailable: " + err.message);
     }
   }
 
+  initZxingReader() {
+    if (window.ZXing && window.ZXing.BrowserMultiFormatReader) {
+      if (!this.codeReader) {
+        this.codeReader = new ZXing.BrowserMultiFormatReader();
+      }
+      try {
+        this.codeReader.decodeFromVideoElement(this.video, (result, err) => {
+          if (result && this.isScanning && this.scannerMode === 'barcode') {
+            const raw = result.getText ? result.getText() : String(result);
+            if (raw) {
+              this.onBarcodeDetected(raw);
+            }
+          }
+        });
+      } catch (e) {
+        console.warn("ZXing decode error", e);
+      }
+    }
+  }
+
   stopCamera() {
     this.isScanning = false;
+    if (this.codeReader) {
+      try { this.codeReader.reset(); } catch (e) {}
+    }
     if (this.cameraStream) {
       this.cameraStream.getTracks().forEach(track => track.stop());
       this.cameraStream = null;
     }
     this.startCamBtn.style.display = "inline-flex";
     this.stopCamBtn.style.display = "none";
+    if (this.captureOcrBtn) this.captureOcrBtn.style.display = "none";
   }
 
   async scanLoop() {
-    if (!this.isScanning) return;
+    if (!this.isScanning || this.scannerMode !== 'barcode') return;
     if (this.barcodeDetector && this.video.readyState === this.video.HAVE_ENOUGH_DATA) {
       try {
         const barcodes = await this.barcodeDetector.detect(this.video);
         if (barcodes.length > 0) {
           const rawValue = barcodes[0].rawValue;
-          playBeep(980, 0.15);
-          this.stopCamera();
-          this.barcodeInput.value = rawValue;
-          this.lookupBarcode(rawValue);
+          this.onBarcodeDetected(rawValue);
           return;
         }
       } catch (e) {}
@@ -565,22 +662,33 @@ class NutriScoreApp {
     requestAnimationFrame(() => this.scanLoop());
   }
 
+  onBarcodeDetected(rawValue) {
+    playBeep(980, 0.15);
+    this.stopCamera();
+    this.barcodeInput.value = rawValue;
+    this.lookupBarcode(rawValue);
+  }
+
   async lookupBarcode(code) {
     playBeep(660, 0.08);
     this.barcodeInput.value = code;
 
+    // 1. Check quick sample cache
     for (const key in SAMPLES) {
       if (SAMPLES[key].barcode === code) {
+        if (this.notFoundCard) this.notFoundCard.style.display = "none";
+        this.resultCard.style.display = "block";
         this.displayProduct(SAMPLES[key], "Database Cache");
         return;
       }
     }
 
+    // 2. Query Open Food Facts API
     try {
       const url = `https://world.openfoodfacts.org/api/v2/product/${code}.json?fields=product_name,brands,nutriments,nutriscore_grade,ingredients_text`;
       const res = await fetch(url);
       const data = await res.json();
-      if (data.status === 1 && data.product) {
+      if (data.status === 1 && data.product && data.product.nutriments) {
         const p = data.product;
         const nutrition = {
           "energy-kcal_100g": Number(p.nutriments?.["energy-kcal_100g"] || p.nutriments?.["energy-kcal"] || 0),
@@ -591,35 +699,240 @@ class NutriScoreApp {
           "proteins_100g": Number(p.nutriments?.["proteins_100g"] || 0)
         };
         const productObj = {
-          name: p.product_name || "Unknown Product",
+          name: p.product_name || "Food Product",
           brand: p.brands || "Food Brand",
           barcode: code,
           officialGrade: p.nutriscore_grade ? p.nutriscore_grade.toUpperCase() : null,
           nutrition: nutrition,
           ingredients: p.ingredients_text || ""
         };
+        if (this.notFoundCard) this.notFoundCard.style.display = "none";
+        this.resultCard.style.display = "block";
         this.displayProduct(productObj, "Open Food Facts API");
         return;
       }
     } catch (e) {
-      console.warn("API lookup failed, falling back to local ML", e);
+      console.warn("API lookup error", e);
     }
 
-    const fallbackNut = {
-      "energy-kcal_100g": 350,
-      "sugars_100g": 12.0,
-      "saturated-fat_100g": 2.5,
-      "salt_100g": 0.8,
-      "fiber_100g": 3.0,
-      "proteins_100g": 5.0
+    // 3. Product NOT found in database: Prompt user to scan ingredients with camera!
+    playBeep(440, 0.12);
+    this.resultCard.style.display = "none";
+    if (this.notFoundCard) {
+      this.notFoundCard.style.display = "flex";
+      if (this.notFoundCodeBadge) this.notFoundCodeBadge.textContent = `#${code}`;
+      this.notFoundCard.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+    }
+  }
+
+  triggerOcrModeForNotFound() {
+    this.setScannerMode('ocr');
+    if (!this.isScanning) {
+      this.startCamera();
+    }
+    if (this.video) {
+      this.video.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    }
+  }
+
+  async handleImageUpload(e) {
+    const file = e.target.files && e.target.files[0];
+    if (!file) return;
+    const img = new Image();
+    const reader = new FileReader();
+    reader.onload = (event) => {
+      img.onload = () => {
+        const canvas = document.createElement("canvas");
+        canvas.width = img.width;
+        canvas.height = img.height;
+        const ctx = canvas.getContext("2d");
+        ctx.drawImage(img, 0, 0);
+        this.runOCRFromCanvas(canvas);
+      };
+      img.src = event.target.result;
     };
-    this.displayProduct({
-      name: `Product #${code}`,
-      brand: "Offline Scan",
-      barcode: code,
-      nutrition: fallbackNut,
-      ingredients: ""
-    }, "On-Device ML Fallback");
+    reader.readAsDataURL(file);
+  }
+
+  async captureAndRunOCR() {
+    if (!this.video || this.video.readyState < 2) {
+      alert("Camera is not ready yet. Please ensure camera is active.");
+      return;
+    }
+    const canvas = document.createElement("canvas");
+    canvas.width = this.video.videoWidth || 1280;
+    canvas.height = this.video.videoHeight || 720;
+    const ctx = canvas.getContext("2d");
+    ctx.drawImage(this.video, 0, 0, canvas.width, canvas.height);
+    this.runOCRFromCanvas(canvas);
+  }
+
+  async runOCRFromCanvas(canvas) {
+    if (this.isProcessingOcr) return;
+    this.isProcessingOcr = true;
+
+    if (this.ocrLoadingOverlay) {
+      this.ocrLoadingOverlay.style.display = "flex";
+      if (this.ocrStatusText) this.ocrStatusText.textContent = "Scanning label with on-device OCR...";
+    }
+
+    try {
+      let extractedText = "";
+
+      if (window.Tesseract) {
+        const worker = await Tesseract.createWorker('eng', 1, {
+          logger: (m) => {
+            if (m.status === 'recognizing text' && this.ocrStatusText) {
+              const progress = Math.round(m.progress * 100);
+              this.ocrStatusText.textContent = `Reading text with AI OCR... ${progress}%`;
+            }
+          }
+        });
+        const ret = await worker.recognize(canvas);
+        await worker.terminate();
+        extractedText = ret.data.text || "";
+      } else {
+        // Fallback prompt if Tesseract library is unavailable offline
+        extractedText = prompt("On-device OCR is loading. Please paste or enter the ingredients text:") || "";
+      }
+
+      this.processOCRResult(extractedText);
+    } catch (err) {
+      console.error("OCR execution error", err);
+      alert("OCR scan error: " + err.message);
+    } finally {
+      this.isProcessingOcr = false;
+      if (this.ocrLoadingOverlay) this.ocrLoadingOverlay.style.display = "none";
+    }
+  }
+
+  parseNutritionFromText(text) {
+    const nutrition = {
+      "energy-kcal_100g": 0,
+      "sugars_100g": 0,
+      "saturated-fat_100g": 0,
+      "salt_100g": 0,
+      "fiber_100g": 0,
+      "proteins_100g": 0
+    };
+    let foundCount = 0;
+
+    // Energy (kcal or kJ)
+    const kcalMatch = text.match(/(?:energy|calories?)[^\d\n]*?(\d+(?:[.,]\d+)?)\s*kcal/i);
+    if (kcalMatch) {
+      nutrition["energy-kcal_100g"] = parseFloat(kcalMatch[1].replace(",", "."));
+      foundCount++;
+    } else {
+      const kjMatch = text.match(/(?:energy|calories?)[^\d\n]*?(\d+(?:[.,]\d+)?)\s*kj/i);
+      if (kjMatch) {
+        nutrition["energy-kcal_100g"] = Math.round(parseFloat(kjMatch[1].replace(",", ".")) / 4.184);
+        foundCount++;
+      }
+    }
+
+    // Sugars
+    const sugarMatch = text.match(/(?:sugars?|of which sugars?)[^\d\n]*?(\d+(?:[.,]\d+)?)\s*g?/i);
+    if (sugarMatch) {
+      nutrition["sugars_100g"] = parseFloat(sugarMatch[1].replace(",", "."));
+      foundCount++;
+    }
+
+    // Saturated Fat
+    const satFatMatch = text.match(/(?:saturated\s*fat?|sat\.?\s*fat|of which saturates?)[^\d\n]*?(\d+(?:[.,]\d+)?)\s*g?/i);
+    if (satFatMatch) {
+      nutrition["saturated-fat_100g"] = parseFloat(satFatMatch[1].replace(",", "."));
+      foundCount++;
+    }
+
+    // Salt / Sodium
+    const saltMatch = text.match(/\bsalt\b[^\d\n]*?(\d+(?:[.,]\d+)?)\s*g?/i);
+    if (saltMatch) {
+      nutrition["salt_100g"] = parseFloat(saltMatch[1].replace(",", "."));
+      foundCount++;
+    } else {
+      const sodiumMatch = text.match(/\bsodium\b[^\d\n]*?(\d+(?:[.,]\d+)?)\s*(?:mg|g)?/i);
+      if (sodiumMatch) {
+        let val = parseFloat(sodiumMatch[1].replace(",", "."));
+        if (val > 10) val = val / 1000;
+        nutrition["salt_100g"] = parseFloat((val * 2.5).toFixed(2));
+        foundCount++;
+      }
+    }
+
+    // Fiber
+    const fiberMatch = text.match(/(?:fib(?:re|er)|dietary\s*fib(?:re|er))[^\d\n]*?(\d+(?:[.,]\d+)?)\s*g?/i);
+    if (fiberMatch) {
+      nutrition["fiber_100g"] = parseFloat(fiberMatch[1].replace(",", "."));
+      foundCount++;
+    }
+
+    // Protein
+    const proteinMatch = text.match(/(?:proteins?)[^\d\n]*?(\d+(?:[.,]\d+)?)\s*g?/i);
+    if (proteinMatch) {
+      nutrition["proteins_100g"] = parseFloat(proteinMatch[1].replace(",", "."));
+      foundCount++;
+    }
+
+    return { nutrition, foundCount };
+  }
+
+  processOCRResult(rawText) {
+    if (!rawText || !rawText.trim()) {
+      alert("No clear text detected from label. Please ensure good lighting and text focus, or try another photo.");
+      return;
+    }
+
+    // 1. Parse nutrition values
+    const { nutrition, foundCount } = this.parseNutritionFromText(rawText);
+
+    // 2. Evaluate ingredients using on-device NLP model
+    const nlpRes = evaluateText(rawText);
+
+    // 3. Determine grade (XGBoost if >=3 nutrition values found, otherwise NLP model)
+    let predictedGrade = nlpRes.grade;
+    let methodTag = "On-Device OCR • NLP Ingredients Model";
+
+    if (foundCount >= 3) {
+      const featVec = [
+        nutrition["energy-kcal_100g"],
+        nutrition["sugars_100g"],
+        nutrition["saturated-fat_100g"],
+        nutrition["salt_100g"],
+        nutrition["fiber_100g"],
+        nutrition["proteins_100g"]
+      ];
+      const mlRes = evaluateXGB(EMBEDDED_XGB, featVec);
+      predictedGrade = mlRes.grade;
+      methodTag = "On-Device OCR • XGBoost + NLP Hybrid";
+    }
+
+    const currentBarcode = this.barcodeInput.value.trim();
+    const productObj = {
+      name: "Scanned Label Prediction",
+      brand: currentBarcode ? `Barcode ${currentBarcode} • On-Device AI` : "Camera Label Scan",
+      barcode: currentBarcode || "OCR-SCAN",
+      officialGrade: predictedGrade,
+      nutrition: nutrition,
+      ingredients: rawText
+    };
+
+    // Update Tuner sliders so user can view/adjust parsed values
+    Object.keys(nutrition).forEach(key => {
+      const shortKey = key.split("_")[0].replace("energy-kcal", "energy").replace("saturated-fat", "satFat");
+      if (this.sliders[shortKey] && nutrition[key] > 0) {
+        this.sliders[shortKey].value = nutrition[key];
+        if (this.badges[shortKey]) this.badges[shortKey].textContent = nutrition[key];
+      }
+    });
+
+    if (this.notFoundCard) this.notFoundCard.style.display = "none";
+    this.resultCard.style.display = "block";
+    this.displayProduct(productObj, methodTag);
+
+    // Stop camera and play sound
+    this.stopCamera();
+    playBeep(880, 0.2);
+    this.resultCard.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
   }
 
   loadSample(key) {

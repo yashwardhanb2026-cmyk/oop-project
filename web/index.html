@@ -17,6 +17,10 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Plus+Jakarta+Sans:wght@600;700;800&display=swap" rel="stylesheet">
   
+  <!-- External Scanning Libraries (ZXing Multi-format Barcode & Tesseract On-Device OCR) -->
+  <script src="https://unpkg.com/@zxing/library@latest/umd/index.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
+
   <!-- Stylesheet -->
   <link rel="stylesheet" href="style.css">
 </head>
@@ -50,22 +54,65 @@
            ================================================================== -->
       <section id="tab-scan" class="tab-view active">
         
+        <!-- Scanner Mode Switcher (Barcode vs Ingredients OCR) -->
+        <div class="scanner-mode-bar">
+          <button id="mode-barcode-btn" class="scanner-mode-tab active" data-mode="barcode">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 7V5a2 2 0 0 1 2-2h2M17 3h2a2 2 0 0 1 2 2v2M21 17v2a2 2 0 0 1-2 2h-2M7 21H5a2 2 0 0 1-2-2v-2"></path><line x1="7" y1="12" x2="17" y2="12"></line></svg>
+            <span>Barcode Scanner</span>
+          </button>
+          <button id="mode-ocr-btn" class="scanner-mode-tab" data-mode="ocr">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline><line x1="16" y1="13" x2="8" y2="13"></line><line x1="16" y1="17" x2="8" y2="17"></line></svg>
+            <span>Ingredients OCR</span>
+          </button>
+        </div>
+
         <!-- Camera Viewfinder -->
         <div class="scanner-container">
           <video id="camera-video" playsinline muted></video>
-          <div class="scanner-overlay">
+          
+          <!-- Barcode Reticle Overlay -->
+          <div id="reticle-barcode" class="scanner-overlay">
             <div class="scanner-reticle">
               <div class="laser-line"></div>
             </div>
+            <span class="scanner-instruction-pill">Point at food barcode</span>
           </div>
+
+          <!-- Ingredients / Label OCR Reticle Overlay -->
+          <div id="reticle-ocr" class="scanner-overlay" style="display: none;">
+            <div class="scanner-reticle ocr-box">
+              <div class="corner-bracket top-left"></div>
+              <div class="corner-bracket top-right"></div>
+              <div class="corner-bracket bottom-left"></div>
+              <div class="corner-bracket bottom-right"></div>
+            </div>
+            <span class="scanner-instruction-pill">Align ingredients or nutrition table</span>
+          </div>
+
+          <!-- OCR Live Processing Loading Overlay -->
+          <div id="ocr-loading-overlay" class="ocr-loading-overlay" style="display: none;">
+            <div class="ocr-spinner"></div>
+            <span id="ocr-status-text">Scanning label with AI OCR...</span>
+          </div>
+
+          <!-- Viewfinder Action Bar -->
           <div class="scanner-controls">
             <button id="start-cam-btn" class="scanner-action-btn">
               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"></path><circle cx="12" cy="13" r="4"></circle></svg>
-              <span>Scan Label / Barcode</span>
+              <span>Start Camera</span>
             </button>
+            <button id="capture-ocr-btn" class="scanner-action-btn capture-btn" style="display: none; background: #00c853;">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"></circle><circle cx="12" cy="12" r="3" fill="currentColor"></circle></svg>
+              <span>Capture & Analyze</span>
+            </button>
+            <button id="upload-label-btn" class="scanner-action-btn upload-btn" style="background: var(--c-surface-3);">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="17 8 12 3 7 8"></polyline><line x1="12" y1="3" x2="12" y2="15"></line></svg>
+              <span>Upload Label</span>
+            </button>
+            <input type="file" id="label-file-input" accept="image/*" capture="environment" style="display: none;">
             <button id="stop-cam-btn" class="scanner-action-btn" style="display: none; background: #e63e11;">
               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect></svg>
-              <span>Stop Camera</span>
+              <span>Stop</span>
             </button>
           </div>
         </div>
@@ -76,6 +123,29 @@
           <button id="lookup-btn" class="btn-primary">
             <span>Lookup</span>
           </button>
+        </div>
+
+        <!-- Not Found in Database Alert Card -->
+        <div id="not-found-card" class="not-found-card" style="display: none;">
+          <div class="not-found-icon-wrap">
+            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#fecb02" stroke-width="2.2"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"></path><line x1="12" y1="9" x2="12" y2="13"></line><line x1="12" y1="17" x2="12.01" y2="17"></line></svg>
+          </div>
+          <div class="not-found-info">
+            <div class="not-found-title-row">
+              <h4>Product Not Found in Database</h4>
+              <span id="not-found-code-badge" class="not-found-badge">#---</span>
+            </div>
+            <p>This barcode isn't in Open Food Facts yet. Scan the nutrition table or ingredients list directly with your camera to predict its grade with on-device ML!</p>
+            <div class="not-found-actions">
+              <button id="scan-ingredients-btn" class="btn-primary-small">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"></path><circle cx="12" cy="13" r="4"></circle></svg>
+                <span>Scan Ingredients with Camera</span>
+              </button>
+              <button id="manual-tuner-btn" class="btn-ghost-small">
+                <span>Enter in Tuner</span>
+              </button>
+            </div>
+          </div>
         </div>
 
         <!-- Quick 1-Click Test Presets -->
