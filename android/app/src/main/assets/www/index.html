@@ -1,0 +1,355 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no">
+  <meta name="theme-color" content="#091015">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="description" content="On-Device AI Food Grade Scanner and Nutri-Score Predictor. Evaluates nutrition tables and ingredients with offline XGBoost and NLP.">
+  <title>NutriScore ML • Food Grade Scanner</title>
+  
+  <!-- Web App Manifest -->
+  <link rel="manifest" href="manifest.json">
+  
+  <!-- Typography -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Plus+Jakarta+Sans:wght@600;700;800&display=swap" rel="stylesheet">
+  
+  <!-- Stylesheet -->
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+  <!-- Mobile Viewport Container -->
+  <div class="app-viewport">
+    
+    <!-- Top App Bar -->
+    <header class="app-header">
+      <div class="brand">
+        <div class="brand-icon">A</div>
+        <div class="brand-text">
+          <h1>NutriScore ML</h1>
+          <span>On-Device AI Scanner</span>
+        </div>
+      </div>
+      <div class="header-actions">
+        <div class="chip-status">
+          <span class="status-dot"></span>
+          <span>Offline ML</span>
+        </div>
+      </div>
+    </header>
+
+    <!-- Scrollable Main Content -->
+    <main class="app-content">
+
+      <!-- ==================================================================
+           TAB 1: LIVE SCANNER & BARCODE LOOKUP
+           ================================================================== -->
+      <section id="tab-scan" class="tab-view active">
+        
+        <!-- Camera Viewfinder -->
+        <div class="scanner-container">
+          <video id="camera-video" playsinline muted></video>
+          <div class="scanner-overlay">
+            <div class="scanner-reticle">
+              <div class="laser-line"></div>
+            </div>
+          </div>
+          <div class="scanner-controls">
+            <button id="start-cam-btn" class="scanner-action-btn">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"></path><circle cx="12" cy="13" r="4"></circle></svg>
+              <span>Scan Label / Barcode</span>
+            </button>
+            <button id="stop-cam-btn" class="scanner-action-btn" style="display: none; background: #e63e11;">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect></svg>
+              <span>Stop Camera</span>
+            </button>
+          </div>
+        </div>
+
+        <!-- Barcode Search Input -->
+        <div class="search-box">
+          <input type="text" id="barcode-input" class="input-field" inputmode="numeric" placeholder="Enter barcode (e.g. 3017620422003)">
+          <button id="lookup-btn" class="btn-primary">
+            <span>Lookup</span>
+          </button>
+        </div>
+
+        <!-- Quick 1-Click Test Presets -->
+        <div class="presets-section">
+          <span class="section-label">Quick Test Presets</span>
+          <div class="chips-scroll">
+            <button class="chip" data-sample="oats">
+              <span class="chip-grade a">A</span> Rolled Oats
+            </button>
+            <button class="chip" data-sample="bread">
+              <span class="chip-grade b">B</span> Whole Wheat Bread
+            </button>
+            <button class="chip" data-sample="lentil_chips">
+              <span class="chip-grade c">C</span> Lentil Crisps
+            </button>
+            <button class="chip" data-sample="frosted_cereal">
+              <span class="chip-grade d">D</span> Frosted Flakes
+            </button>
+            <button class="chip" data-sample="nutella">
+              <span class="chip-grade e">E</span> Nutella
+            </button>
+          </div>
+        </div>
+
+        <!-- Scanned Product Result Card -->
+        <div id="result-card" class="result-card">
+          
+          <div class="product-meta">
+            <div class="product-info">
+              <h2 id="res-title">100% Whole Grain Rolled Oats</h2>
+              <p id="res-brand">Quaker Oats • 030000010302</p>
+            </div>
+            <span id="res-method" class="method-tag">Database Cache</span>
+          </div>
+
+          <!-- Official Nutri-Score Spectrum Gauge -->
+          <div class="nutriscore-spectrum">
+            <div id="res-spectrum" class="scale-bars">
+              <div class="scale-item a active" data-grade="A">A</div>
+              <div class="scale-item b" data-grade="B">B</div>
+              <div class="scale-item c" data-grade="C">C</div>
+              <div class="scale-item d" data-grade="D">D</div>
+              <div class="scale-item e" data-grade="E">E</div>
+            </div>
+            <div class="scale-caption">
+              <span>Grade: <strong id="res-score-val">A (FSAm-NPS Score: -3)</strong></span>
+              <span id="res-conf-val">98% Confidence</span>
+            </div>
+          </div>
+
+          <!-- ML Class Probability Distribution -->
+          <div class="prob-distribution">
+            <span class="section-label" style="font-size: 10px;">XGBoost Tree Class Distribution [A–E]</span>
+            <div class="prob-bar">
+              <div id="prob-a" class="prob-segment a" style="width: 82%;"></div>
+              <div id="prob-b" class="prob-segment b" style="width: 12%;"></div>
+              <div id="prob-c" class="prob-segment c" style="width: 4%;"></div>
+              <div id="prob-d" class="prob-segment d" style="width: 1%;"></div>
+              <div id="prob-e" class="prob-segment e" style="width: 1%;"></div>
+            </div>
+          </div>
+
+          <!-- Nutrition Grid per 100g -->
+          <span class="section-label">Nutrition per 100g</span>
+          <div class="nutrients-grid">
+            <div class="nutrient-box">
+              <div class="nutrient-title">Energy</div>
+              <div id="nut-energy" class="nutrient-val">375 kcal</div>
+            </div>
+            <div class="nutrient-box">
+              <div class="nutrient-title">Sugars</div>
+              <div id="nut-sugars" class="nutrient-val good">1.0 g</div>
+            </div>
+            <div class="nutrient-box">
+              <div class="nutrient-title">Saturated Fat</div>
+              <div id="nut-satfat" class="nutrient-val good">1.3 g</div>
+            </div>
+            <div class="nutrient-box">
+              <div class="nutrient-title">Salt / Sodium</div>
+              <div id="nut-salt" class="nutrient-val good">0.01 g</div>
+            </div>
+            <div class="nutrient-box">
+              <div class="nutrient-title">Fibre</div>
+              <div id="nut-fiber" class="nutrient-val good">10.0 g</div>
+            </div>
+            <div class="nutrient-box">
+              <div class="nutrient-title">Protein</div>
+              <div id="nut-proteins" class="nutrient-val good">13.0 g</div>
+            </div>
+          </div>
+
+          <!-- SHAP Drivers & Attribution -->
+          <div class="drivers-card">
+            <span class="section-label">Nutritional Impact & Drivers</span>
+            <div id="drivers-list">
+              <!-- populated dynamically -->
+            </div>
+          </div>
+
+        </div>
+
+      </section>
+
+      <!-- ==================================================================
+           TAB 2: INTERACTIVE NUTRIENT TUNER & SIMULATOR
+           ================================================================== -->
+      <section id="tab-tuner" class="tab-view">
+        
+        <div class="tuner-card">
+          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
+            <div>
+              <h2 style="font-family: var(--font-display); font-size: 17px; font-weight: 800;">What-If Simulator</h2>
+              <p style="font-size: 12px; color: var(--c-text-2);">Drag sliders to see live grade changes via offline XGBoost</p>
+            </div>
+            <div id="tuner-live-grade" class="scale-item a" style="width: 44px; height: 44px; border-radius: 12px; font-size: 24px; opacity: 1;">A</div>
+          </div>
+          <div id="tuner-live-score" style="font-size: 12px; font-weight: 600; color: var(--c-accent); margin-bottom: 16px;">
+            Nutri-Score: -3 points • XGBoost: A (98%)
+          </div>
+
+          <!-- Sliders -->
+          <div class="tuner-row">
+            <div class="tuner-header">
+              <span class="tuner-name">Energy (kcal)</span>
+              <span id="val-energy" class="tuner-badge">375 kcal</span>
+            </div>
+            <input type="range" id="slider-energy" class="range-slider" min="0" max="900" step="5" value="375">
+          </div>
+
+          <div class="tuner-row">
+            <div class="tuner-header">
+              <span class="tuner-name">Sugars (g)</span>
+              <span id="val-sugars" class="tuner-badge">1.0 g</span>
+            </div>
+            <input type="range" id="slider-sugars" class="range-slider" min="0" max="80" step="0.5" value="1">
+          </div>
+
+          <div class="tuner-row">
+            <div class="tuner-header">
+              <span class="tuner-name">Saturated Fat (g)</span>
+              <span id="val-satfat" class="tuner-badge">1.3 g</span>
+            </div>
+            <input type="range" id="slider-satfat" class="range-slider" min="0" max="40" step="0.2" value="1.3">
+          </div>
+
+          <div class="tuner-row">
+            <div class="tuner-header">
+              <span class="tuner-name">Salt (g)</span>
+              <span id="val-salt" class="tuner-badge">0.01 g</span>
+            </div>
+            <input type="range" id="slider-salt" class="range-slider" min="0" max="5" step="0.05" value="0.01">
+          </div>
+
+          <div class="tuner-row">
+            <div class="tuner-header">
+              <span class="tuner-name">Dietary Fibre (g)</span>
+              <span id="val-fiber" class="tuner-badge">10.0 g</span>
+            </div>
+            <input type="range" id="slider-fiber" class="range-slider" min="0" max="25" step="0.5" value="10">
+          </div>
+
+          <div class="tuner-row">
+            <div class="tuner-header">
+              <span class="tuner-name">Protein (g)</span>
+              <span id="val-proteins" class="tuner-badge">13.0 g</span>
+            </div>
+            <input type="range" id="slider-proteins" class="range-slider" min="0" max="40" step="0.5" value="13">
+          </div>
+        </div>
+
+        <!-- Recipe Simulation Presets -->
+        <span class="section-label">Simulate Food Archetypes</span>
+        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px;">
+          <button class="chip btn-tuner-preset" data-preset='{"energy-kcal_100g":48,"sugars_100g":1.2,"saturated-fat_100g":0.1,"salt_100g":0.05,"fiber_100g":3.2,"proteins_100g":2.5}'>
+            Fresh Broccoli Bowl
+          </button>
+          <button class="chip btn-tuner-preset" data-preset='{"energy-kcal_100g":540,"sugars_100g":54.0,"saturated-fat_100g":18.0,"salt_100g":0.2,"fiber_100g":2.5,"proteins_100g":6.5}'>
+            Milk Chocolate
+          </button>
+          <button class="chip btn-tuner-preset" data-preset='{"energy-kcal_100g":145,"sugars_100g":0.5,"saturated-fat_100g":1.2,"salt_100g":0.4,"fiber_100g":5.0,"proteins_100g":9.0}'>
+            Lentil Stew
+          </button>
+          <button class="chip btn-tuner-preset" data-preset='{"energy-kcal_100g":520,"sugars_100g":2.0,"saturated-fat_100g":8.5,"salt_100g":2.1,"fiber_100g":3.0,"proteins_100g":6.0}'>
+            Salted Potato Crisps
+          </button>
+        </div>
+
+      </section>
+
+      <!-- ==================================================================
+           TAB 3: INGREDIENTS NATURAL LANGUAGE PROCESSOR (NLP)
+           ================================================================== -->
+      <section id="tab-nlp" class="tab-view">
+        
+        <div class="result-card">
+          <h2 style="font-family: var(--font-display); font-size: 17px; font-weight: 800; margin-bottom: 4px;">Ingredients NLP Evaluator</h2>
+          <p style="font-size: 13px; color: var(--c-text-2); margin-bottom: 14px;">Evaluates text using on-device TF-IDF & Logistic Regression</p>
+
+          <textarea id="nlp-input" class="nlp-textarea" placeholder="Paste or type ingredients list, e.g.:
+Sugar, palm oil, hazelnuts 13%, skimmed milk powder, fat-reduced cocoa, emulsifier: lecithins (soya), vanillin.">Rolled oats, almonds, chia seeds, dried cranberries, sunflower seeds.</textarea>
+
+          <button id="nlp-analyze-btn" class="btn-primary" style="width: 100%; height: 42px;">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line></svg>
+            <span>Predict Grade from Ingredients</span>
+          </button>
+
+          <!-- NLP Prediction Result Card -->
+          <div id="nlp-result-card" style="margin-top: 16px; border-top: 1px solid var(--c-border); padding-top: 14px;">
+            <div style="display: flex; justify-content: space-between; align-items: center;">
+              <div>
+                <span class="section-label" style="margin-bottom: 2px;">Predicted Grade</span>
+                <span id="nlp-conf-val" style="font-size: 13px; font-weight: 600; color: var(--c-text-2);">92% Confidence</span>
+              </div>
+              <div id="nlp-grade-badge" class="scale-item a" style="width: 44px; height: 44px; border-radius: 12px; font-size: 24px; opacity: 1;">A</div>
+            </div>
+
+            <div style="margin-top: 14px;">
+              <span class="section-label">Identified Ingredient Signals</span>
+              <div id="nlp-tags" class="ingredients-tags">
+                <!-- dynamic tags -->
+              </div>
+            </div>
+          </div>
+        </div>
+
+      </section>
+
+      <!-- ==================================================================
+           TAB 4: SAVED HISTORY
+           ================================================================== -->
+      <section id="tab-history" class="tab-view">
+        
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
+          <div>
+            <h2 style="font-family: var(--font-display); font-size: 17px; font-weight: 800;">Saved Scans</h2>
+            <p style="font-size: 12px; color: var(--c-text-2);">Recent food products analyzed</p>
+          </div>
+          <button id="clear-history-btn" class="chip" style="color: var(--c-danger);">Clear</button>
+        </div>
+
+        <div id="history-list">
+          <!-- Populated dynamically -->
+        </div>
+
+      </section>
+
+    </main>
+
+    <!-- Tactile Bottom Navigation Bar -->
+    <nav class="bottom-nav">
+      <button class="nav-tab active" data-tab="scan">
+        <svg viewBox="0 0 24 24"><path d="M3 7V5a2 2 0 0 1 2-2h2M17 3h2a2 2 0 0 1 2 2v2M21 17v2a2 2 0 0 1-2 2h-2M7 21H5a2 2 0 0 1-2-2v-2"></path><line x1="7" y1="12" x2="17" y2="12"></line></svg>
+        <span>Scan</span>
+      </button>
+
+      <button class="nav-tab" data-tab="tuner">
+        <svg viewBox="0 0 24 24"><line x1="4" y1="21" x2="4" y2="14"></line><line x1="4" y1="10" x2="4" y2="3"></line><line x1="12" y1="21" x2="12" y2="12"></line><line x1="12" y1="8" x2="12" y2="3"></line><line x1="20" y1="21" x2="20" y2="16"></line><line x1="20" y1="12" x2="20" y2="3"></line><line x1="1" y1="14" x2="7" y2="14"></line><line x1="9" y1="8" x2="15" y2="8"></line><line x1="17" y1="16" x2="23" y2="16"></line></svg>
+        <span>Tuner</span>
+      </button>
+
+      <button class="nav-tab" data-tab="nlp">
+        <svg viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline><line x1="16" y1="13" x2="8" y2="13"></line><line x1="16" y1="17" x2="8" y2="17"></line><polyline points="10 9 9 9 8 9"></polyline></svg>
+        <span>Ingredients</span>
+      </button>
+
+      <button class="nav-tab" data-tab="history">
+        <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"></circle><polyline points="12 6 12 12 16 14"></polyline></svg>
+        <span>Saved</span>
+      </button>
+    </nav>
+
+  </div>
+
+  <!-- Application Logic -->
+  <script src="app.js"></script>
+</body>
+</html>

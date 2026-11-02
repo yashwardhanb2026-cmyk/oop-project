@@ -1,0 +1,7 @@
+<resources>
+    <style name="Theme.NutriScore" parent="Theme.MaterialComponents.DayNight.NoActionBar">
+        <item name="android:statusBarColor">#091015</item>
+        <item name="android:navigationBarColor">#091015</item>
+        <item name="android:windowBackground">#091015</item>
+    </style>
+</resources>

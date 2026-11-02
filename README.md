@@ -15,16 +15,30 @@ Everything runs **on your own device**, no internet needed after setup.
 
 Models compared in `train.py`: TF-IDF + Logistic Regression (baseline), XGBoost (nutrition), Hybrid XGBoost (nutrition + ingredients). `distilbert.py` adds a fine-tuned DistilBERT on ingredients only.
 
+## 📱 Android Mobile App & APK Download
+
+Download the APK directly to your phone from **[GitHub Releases](https://github.com/yashwardhanb2026-cmyk/oop-project/releases)**:
+* **Download APK:** [`NutriScore-v1.0.0.apk`](https://github.com/yashwardhanb2026-cmyk/oop-project/releases/download/v1.0.0/NutriScore-v1.0.0.apk)
+
+### Mobile App Highlights
+* **100% Offline On-Device ML:** Runs calibrated XGBoost trees and TF-IDF NLP models on your phone with zero network lag.
+* **Camera Barcode & Label Scanner:** Instant hardware-accelerated scanning.
+* **Interactive What-If Tuner:** Drag sliders for Energy, Sugars, Sat Fat, Salt, Fiber, and Protein to see grades change in real time.
+* **Ingredients NLP:** Predicts grades from raw text and highlights whole vs ultra-processed ingredients.
+
 ## Project structure
 
-| File | What it does |
+| File / Folder | What it does |
 |---|---|
-| `train.py` | Loads Open Food Facts, trains and compares the models, saves results, plots and models |
-| `predict.py` | `predict_grade()` function that loads the saved models and grades a product |
+| `android/` | Android native project (compile with Gradle into an APK) |
+| `.github/workflows/build-apk.yml` | GitHub Actions CI/CD to build & release `NutriScore-v1.0.0.apk` automatically |
+| `web/` | Standalone PWA & mobile web application |
+| `mobile_app/` | Flutter evaluators & compact model JSON assets |
+| `export_mobile.py` | Exports calibrated compact ML models for mobile |
+| `train.py` | Loads Open Food Facts, trains and compares models |
+| `predict.py` | `predict_grade()` function that grades a product |
 | `app.py` | Desktop GUI (photo or webcam → OCR → grade) |
-| `distilbert.py` | Fine-tunes DistilBERT on ingredient text (run on Google Colab GPU) |
-| `web/index.html` | Simple web page: type a barcode, get the official grade from Open Food Facts |
-| `requirements.txt` | Python dependencies |
+| `distilbert.py` | Fine-tunes DistilBERT on ingredient text |
 
 ## Install
 

@@ -1,0 +1,87 @@
+name: Build & Release Android APK
+
+on:
+  push:
+    branches: [ main ]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build-apk:
+    name: Build & Release NutriScore APK
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '17'
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v3
+
+      - name: Sync Web & ML Assets to Android APK Bundle
+        run: |
+          mkdir -p android/app/src/main/assets/www/models
+          cp -r web/index.html web/style.css web/app.js web/manifest.json android/app/src/main/assets/www/
+          cp -r web/models/* android/app/src/main/assets/www/models/
+          echo "Web and ML models successfully bundled into Android assets."
+
+      - name: Build Android APK
+        working-directory: android
+        run: |
+          gradle assembleRelease --stacktrace
+
+      - name: Prepare APK for Release
+        run: |
+          mkdir -p dist
+          APK_FILE=$(find android/app/build/outputs/apk/ -name "*.apk" | head -n 1)
+          if [ -f "$APK_FILE" ]; then
+            cp "$APK_FILE" dist/NutriScore-v1.0.0.apk
+            echo "Copied $APK_FILE to dist/NutriScore-v1.0.0.apk"
+            ls -lh dist/
+          else
+            echo "Error: No APK file found in android/app/build/outputs/apk/"
+            exit 1
+          fi
+
+      - name: Upload APK as Workflow Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: NutriScore-v1.0.0.apk
+          path: dist/NutriScore-v1.0.0.apk
+
+      - name: Publish GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v1.0.0
+          name: "NutriScore Mobile App v1.0.0 (Android APK)"
+          body: |
+            # 🍏 NutriScore ML • Android Mobile App (v1.0.0)
+
+            Download the APK directly to your phone: **[NutriScore-v1.0.0.apk](https://github.com/yashwardhanb2026-cmyk/oop-project/releases/download/v1.0.0/NutriScore-v1.0.0.apk)**
+
+            ---
+
+            ### 🚀 Features in this Release:
+            * **Offline On-Device ML**: Evaluates food grades across the entire **A to E** spectrum using embedded XGBoost decision trees and TF-IDF Natural Language Processing.
+            * **Official 2024 European Nutri-Score (FSAm-NPS)**: Full scientific calculation with exact nutrient penalty and positive protein/fiber scoring.
+            * **Live Camera Barcode Scanner**: Hardware-accelerated barcode & food label scanner with tactile audio/vibration feedback.
+            * **Interactive Nutrient Tuner (What-If Simulator)**: Dynamic sliders for Energy, Sugar, Saturated Fat, Salt, Fiber, and Protein.
+            * **Ingredients NLP Evaluator**: Automatically tags whole clean foods vs. ultra-processed markers.
+            * **100% Offline Capable**: Zero internet required after installing.
+          files: |
+            dist/NutriScore-v1.0.0.apk
+          draft: false
+          prerelease: false
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
