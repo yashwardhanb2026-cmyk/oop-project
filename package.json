@@ -1,0 +1,19 @@
+{
+  "name": "nutriscore-ml",
+  "version": "1.0.0",
+  "description": "On-Device AI Food Grade Scanner and Nutri-Score Predictor",
+  "private": true,
+  "scripts": {
+    "start": "node web/server.js",
+    "build": "node -e \"console.log('Build complete: static web assets ready in web/')\""
+  },
+  "keywords": [
+    "nutriscore",
+    "machine-learning",
+    "xgboost",
+    "nlp",
+    "food-scanner"
+  ],
+  "author": "Yashwardhan",
+  "license": "MIT"
+}
