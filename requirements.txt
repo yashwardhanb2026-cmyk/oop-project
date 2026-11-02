@@ -1,0 +1,19 @@
+# Core (train.py, predict.py, app.py)
+pandas
+numpy
+scipy
+scikit-learn
+xgboost
+shap
+matplotlib
+joblib
+
+# GUI + offline OCR (app.py)
+rapidocr-onnxruntime
+pillow
+opencv-python
+
+# Only for distilbert.py (use Google Colab with a GPU)
+# transformers
+# accelerate
+# torch

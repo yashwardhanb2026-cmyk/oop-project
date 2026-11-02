@@ -1,0 +1,140 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Food Grade Scanner</title>
+<link href="https://fonts.googleapis.com/css2?family=Archivo:wght@400;600;800&display=swap" rel="stylesheet">
+<style>
+:root{--bg:#f2f5f7;--ink:#14232b;--mute:#5d6e77;--card:#fff;--line:#d9e1e5;
+--a:#038141;--b:#85bb2f;--c:#fecb02;--d:#ee8100;--e:#e63e11}
+*{box-sizing:border-box}
+body{margin:0;font-family:Archivo,system-ui,sans-serif;background:var(--bg);color:var(--ink);padding:20px;display:flex;justify-content:center}
+main{width:100%;max-width:460px}
+h1{font-size:26px;font-weight:800;margin:0 0 4px}
+p.sub{margin:0 0 18px;color:var(--mute)}
+.row{display:flex;gap:8px}
+input{flex:1;padding:12px;font:inherit;border:1.5px solid var(--line);border-radius:8px;background:#fff;min-width:0}
+button{font:inherit;font-weight:600;padding:12px 16px;border:0;border-radius:8px;background:var(--ink);color:#fff;cursor:pointer}
+button.alt{background:#fff;color:var(--ink);border:1.5px solid var(--ink)}
+button:focus-visible,input:focus-visible{outline:3px solid var(--b);outline-offset:2px}
+#reader{margin-top:12px;border-radius:8px;overflow:hidden}
+.card{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:18px;margin-top:16px}
+.name{font-size:20px;font-weight:800;margin:0}
+.brand{color:var(--mute);margin:2px 0 16px}
+.scale{display:flex;align-items:flex-end;gap:4px;height:84px}
+.scale div{flex:1;display:flex;align-items:center;justify-content:center;color:#fff;font-weight:800;border-radius:8px;height:46px;font-size:20px;opacity:.35}
+.scale div.on{height:84px;font-size:46px;opacity:1}
+.note{font-size:13px;color:var(--mute);margin:10px 0 0}
+table{width:100%;border-collapse:collapse;margin-top:16px}
+td{padding:8px 0;border-top:1px solid var(--line)}
+td:last-child{text-align:right;font-weight:600}
+.bad{color:var(--e)}.good{color:var(--a)}
+h2{font-size:15px;margin:18px 0 0}
+ul{margin:6px 0 0;padding-left:18px}
+.err{color:var(--e);font-weight:600}
+</style>
+</head>
+<body>
+<main>
+  <h1>Food Grade Scanner</h1>
+  <p class="sub">Scan or type a barcode to see its A–E grade.</p>
+
+  <div class="row">
+    <input id="code" inputmode="numeric" placeholder="Barcode, e.g. 3017620422003">
+    <button id="go">Look up</button>
+  </div>
+  <div class="row" style="margin-top:8px">
+    <button class="alt" id="scan" style="flex:1">Scan with camera</button>
+  </div>
+  <div id="reader"></div>
+  <div id="out"></div>
+</main>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/html5-qrcode/2.3.8/html5-qrcode.min.js"></script>
+<script>
+const $ = id => document.getElementById(id);
+const COLORS = {a:"var(--a)", b:"var(--b)", c:"var(--c)", d:"var(--d)", e:"var(--e)"};
+
+// Rules of thumb per 100g, used for the "Why this grade?" notes
+const CHECKS = [
+  ["sugars_100g", "Sugar", "g", v => v > 10 ? "bad" : v <= 5 ? "good" : "", "High sugar"],
+  ["saturated-fat_100g", "Saturated fat", "g", v => v > 5 ? "bad" : v <= 1.5 ? "good" : "", "High saturated fat"],
+  ["salt_100g", "Salt", "g", v => v > 1.5 ? "bad" : v <= 0.3 ? "good" : "", "High salt"],
+  ["fiber_100g", "Fibre", "g", v => v >= 3 ? "good" : "", "Good fibre"],
+  ["proteins_100g", "Protein", "g", v => v >= 8 ? "good" : "", "Good protein"],
+  ["energy-kcal_100g", "Energy", "kcal", () => "", ""]
+];
+
+// TODO: replace with your trained model (call your Python API here)
+async function predictGrade(product) {
+  return null;
+}
+
+async function lookup(code) {
+  code = code.trim();
+  if (!/^\d{8,14}$/.test(code)) { $("out").innerHTML = '<p class="err">Enter a valid barcode (8–14 digits).</p>'; return; }
+  $("out").innerHTML = '<p class="sub">Looking up…</p>';
+  try {
+    const url = `https://world.openfoodfacts.org/api/v2/product/${code}.json?fields=product_name,brands,nutriscore_grade,nutriments,ingredients_text`;
+    const r = await fetch(url);
+    const d = await r.json();
+    if (d.status !== 1) { $("out").innerHTML = '<p class="err">Product not found in Open Food Facts. Add its nutrition values manually.</p>'; return; }
+    render(d.product);
+  } catch (e) {
+    $("out").innerHTML = '<p class="err">Could not reach the database. Check your internet and open this file via localhost or https.</p>';
+  }
+}
+
+async function render(p) {
+  let grade = (p.nutriscore_grade || "").toLowerCase();
+  let predicted = false;
+  if (!"abcde".includes(grade) || !grade) {
+    grade = (await predictGrade(p)) || "";
+    predicted = !!grade;
+  }
+  const n = p.nutriments || {};
+  const rows = [], why = [];
+  for (const [key, label, unit, cls, msg] of CHECKS) {
+    if (n[key] === undefined) continue;
+    const v = Number(n[key]);
+    const c = cls(v);
+    rows.push(`<tr><td>${label}</td><td class="${c}">${v.toFixed(1)} ${unit}</td></tr>`);
+    if (c && msg) why.push(`<li class="${c}">${msg} (${v.toFixed(1)} ${unit})</li>`);
+  }
+  const scale = [..."abcde"].map(l =>
+    `<div class="${l === grade ? "on" : ""}" style="background:${COLORS[l]}">${l.toUpperCase()}</div>`).join("");
+
+  $("out").innerHTML = `
+    <div class="card">
+      <p class="name">${p.product_name || "Unnamed product"}</p>
+      <p class="brand">${p.brands || ""}</p>
+      <div class="scale">${scale}</div>
+      <p class="note">${grade ? (predicted ? "Grade predicted by our ML model." : "Official Nutri-Score from Open Food Facts.") : "No grade available yet. The ML model will predict it from ingredients."}</p>
+      ${why.length ? `<h2>Why this grade?</h2><ul>${why.join("")}</ul>` : ""}
+      <table>${rows.join("")}</table>
+      <p class="note">Values per 100 g.</p>
+    </div>`;
+}
+
+$("go").onclick = () => lookup($("code").value);
+$("code").onkeydown = e => { if (e.key === "Enter") lookup($("code").value); };
+
+let scanner;
+$("scan").onclick = async () => {
+  if (scanner) { await scanner.stop().catch(()=>{}); scanner = null; $("reader").innerHTML = ""; return; }
+  scanner = new Html5Qrcode("reader");
+  try {
+    await scanner.start({ facingMode: "environment" }, { fps: 10, qrbox: { width: 260, height: 120 } },
+      async text => {
+        await scanner.stop().catch(()=>{}); scanner = null; $("reader").innerHTML = "";
+        $("code").value = text; lookup(text);
+      });
+  } catch (e) {
+    scanner = null;
+    $("out").innerHTML = '<p class="err">Camera blocked. Allow camera access, and open the page via localhost or https.</p>';
+  }
+};
+</script>
+</body>
+</html>
