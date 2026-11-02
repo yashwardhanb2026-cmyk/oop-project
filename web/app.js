@@ -813,6 +813,8 @@ class NutriScoreApp {
   }
 
   parseNutritionFromText(text) {
+    if (!text || typeof text !== 'string') text = "";
+    const lines = text.split(/\r?\n/).map(l => l.trim()).filter(Boolean);
     const nutrition = {
       "energy-kcal_100g": 0,
       "sugars_100g": 0,
@@ -823,61 +825,96 @@ class NutriScoreApp {
     };
     let foundCount = 0;
 
-    // Energy (kcal or kJ)
-    const kcalMatch = text.match(/(?:energy|calories?)[^\d\n]*?(\d+(?:[.,]\d+)?)\s*kcal/i);
-    if (kcalMatch) {
-      nutrition["energy-kcal_100g"] = parseFloat(kcalMatch[1].replace(",", "."));
-      foundCount++;
-    } else {
-      const kjMatch = text.match(/(?:energy|calories?)[^\d\n]*?(\d+(?:[.,]\d+)?)\s*kj/i);
-      if (kjMatch) {
-        nutrition["energy-kcal_100g"] = Math.round(parseFloat(kjMatch[1].replace(",", ".")) / 4.184);
-        foundCount++;
+    // Helper to find numeric value on current line or up to 2 lines below (common for 2-column OCR tables)
+    const findNum = (startIdx, pattern) => {
+      for (let i = startIdx; i <= Math.min(startIdx + 2, lines.length - 1); i++) {
+        const line = lines[i];
+        let searchSlice = line;
+        if (i === startIdx) {
+          const matchPos = line.search(pattern);
+          if (matchPos !== -1) {
+            searchSlice = line.slice(matchPos);
+          }
+        }
+        // Match numbers like "12", "12.5", "12,5", "450" (handling commas as decimal separators)
+        const m = searchSlice.match(/(\d+(?:[.,]\d+)?)\s*(?:g|kcal|kj|mg)?/i);
+        if (m) {
+          const num = parseFloat(m[1].replace(",", "."));
+          if (!isNaN(num)) return num;
+        }
       }
-    }
+      return null;
+    };
 
-    // Sugars
-    const sugarMatch = text.match(/(?:sugars?|of which sugars?)[^\d\n]*?(\d+(?:[.,]\d+)?)\s*g?/i);
-    if (sugarMatch) {
-      nutrition["sugars_100g"] = parseFloat(sugarMatch[1].replace(",", "."));
-      foundCount++;
-    }
+    lines.forEach((line, idx) => {
+      const low = line.toLowerCase();
 
-    // Saturated Fat
-    const satFatMatch = text.match(/(?:saturated\s*fat?|sat\.?\s*fat|of which saturates?)[^\d\n]*?(\d+(?:[.,]\d+)?)\s*g?/i);
-    if (satFatMatch) {
-      nutrition["saturated-fat_100g"] = parseFloat(satFatMatch[1].replace(",", "."));
-      foundCount++;
-    }
-
-    // Salt / Sodium
-    const saltMatch = text.match(/\bsalt\b[^\d\n]*?(\d+(?:[.,]\d+)?)\s*g?/i);
-    if (saltMatch) {
-      nutrition["salt_100g"] = parseFloat(saltMatch[1].replace(",", "."));
-      foundCount++;
-    } else {
-      const sodiumMatch = text.match(/\bsodium\b[^\d\n]*?(\d+(?:[.,]\d+)?)\s*(?:mg|g)?/i);
-      if (sodiumMatch) {
-        let val = parseFloat(sodiumMatch[1].replace(",", "."));
-        if (val > 10) val = val / 1000;
-        nutrition["salt_100g"] = parseFloat((val * 2.5).toFixed(2));
-        foundCount++;
+      // Energy
+      if (!nutrition["energy-kcal_100g"] && /(?:energy|calorie|calories|kcal|energie|brennwert|valor\s*energ[eé]tico)/i.test(low)) {
+        const kcalM = line.match(/(\d+(?:[.,]\d+)?)\s*kcal/i) || (lines[idx + 1] && lines[idx + 1].match(/(\d+(?:[.,]\d+)?)\s*kcal/i));
+        if (kcalM) {
+          nutrition["energy-kcal_100g"] = parseFloat(kcalM[1].replace(",", "."));
+          foundCount++;
+        } else {
+          const val = findNum(idx, /(?:energy|calorie|energie|brennwert)/i);
+          if (val !== null && val > 0) {
+            nutrition["energy-kcal_100g"] = low.includes("kj") ? Math.round(val / 4.184) : val;
+            foundCount++;
+          }
+        }
       }
-    }
 
-    // Fiber
-    const fiberMatch = text.match(/(?:fib(?:re|er)|dietary\s*fib(?:re|er))[^\d\n]*?(\d+(?:[.,]\d+)?)\s*g?/i);
-    if (fiberMatch) {
-      nutrition["fiber_100g"] = parseFloat(fiberMatch[1].replace(",", "."));
-      foundCount++;
-    }
+      // Sugars
+      if (!nutrition["sugars_100g"] && /(?:sugars?|sucre|sucres|zucker|az[uú]car|az[uú]cares|of which sugars|dont sucres)/i.test(low) && !low.includes("added")) {
+        const val = findNum(idx, /(?:sugars?|sucre|sucres|zucker|az[uú]car)/i);
+        if (val !== null) {
+          nutrition["sugars_100g"] = val;
+          foundCount++;
+        }
+      }
 
-    // Protein
-    const proteinMatch = text.match(/(?:proteins?)[^\d\n]*?(\d+(?:[.,]\d+)?)\s*g?/i);
-    if (proteinMatch) {
-      nutrition["proteins_100g"] = parseFloat(proteinMatch[1].replace(",", "."));
-      foundCount++;
-    }
+      // Saturated Fat
+      if (!nutrition["saturated-fat_100g"] && /(?:saturat|sat\.?\s*fat|satur[eé]es|ges[aä]ttigt|saturadas)/i.test(low)) {
+        const val = findNum(idx, /(?:saturat|sat\.?\s*fat|satur[eé]es|ges[aä]ttigt|saturadas)/i);
+        if (val !== null) {
+          nutrition["saturated-fat_100g"] = val;
+          foundCount++;
+        }
+      }
+
+      // Salt / Sodium
+      if (!nutrition["salt_100g"] && /\b(?:salt|sel|salz|sal)\b/i.test(low)) {
+        const val = findNum(idx, /\b(?:salt|sel|salz|sal)\b/i);
+        if (val !== null) {
+          nutrition["salt_100g"] = val;
+          foundCount++;
+        }
+      } else if (!nutrition["salt_100g"] && /sodium/i.test(low)) {
+        const val = findNum(idx, /sodium/i);
+        if (val !== null) {
+          nutrition["salt_100g"] = parseFloat((val * (low.includes("mg") ? 0.0025 : 2.5)).toFixed(2));
+          foundCount++;
+        }
+      }
+
+      // Fiber
+      if (!nutrition["fiber_100g"] && /(?:fib(?:re|er)|ballaststoffe|fibres|fibra)/i.test(low)) {
+        const val = findNum(idx, /(?:fib(?:re|er)|ballaststoffe|fibres|fibra)/i);
+        if (val !== null) {
+          nutrition["fiber_100g"] = val;
+          foundCount++;
+        }
+      }
+
+      // Protein
+      if (!nutrition["proteins_100g"] && /(?:protein|proteins|prot[eé]ines?|eiwei[sß]|prote[ií]nas?)/i.test(low)) {
+        const val = findNum(idx, /(?:protein|prot[eé]ines?|eiwei[sß]|prote[ií]nas?)/i);
+        if (val !== null) {
+          nutrition["proteins_100g"] = val;
+          foundCount++;
+        }
+      }
+    });
 
     return { nutrition, foundCount };
   }
@@ -891,17 +928,21 @@ class NutriScoreApp {
       return;
     }
 
-    // 1. Parse nutrition values
+    // 1. Parse nutrition values with multi-line table parser
     const { nutrition, foundCount } = this.parseNutritionFromText(rawText);
 
     // 2. Evaluate ingredients using on-device NLP model
     const nlpRes = evaluateText(EMBEDDED_TEXT, rawText);
 
-    // 3. Determine grade (XGBoost if >=3 nutrition values found, otherwise NLP model)
     let predictedGrade = nlpRes.grade;
     let methodTag = "On-Device OCR • NLP Ingredients Model";
+    let probabilities = nlpRes.probabilities;
+    let confidence = Math.round(nlpRes.probabilities[nlpRes.index] * 100);
+    let analysisType = 'ingredients_only';
 
-    if (foundCount >= 3) {
+    // If at least 2 nutrition values found from label table, run XGBoost
+    if (foundCount >= 2) {
+      analysisType = 'nutrition';
       const featVec = [
         nutrition["energy-kcal_100g"],
         nutrition["sugars_100g"],
@@ -912,7 +953,14 @@ class NutriScoreApp {
       ];
       const mlRes = evaluateXGB(EMBEDDED_XGB, featVec);
       predictedGrade = mlRes.grade;
-      methodTag = "On-Device OCR • XGBoost + NLP Hybrid";
+      probabilities = mlRes.probabilities;
+      confidence = Math.round(mlRes.probabilities[mlRes.index] * 100);
+      methodTag = `On-Device OCR • Nutrition Table XGBoost (${foundCount}/6 nutrients)`;
+    } else {
+      // Ingredients text analyzed (no nutrition table on this scan)
+      analysisType = 'ingredients_only';
+      const termCount = nlpRes.termsFound ? nlpRes.termsFound.length : 0;
+      methodTag = `On-Device OCR • NLP Ingredients (${termCount} keywords identified)`;
     }
 
     const currentBarcode = this.barcodeInput.value.trim();
@@ -922,17 +970,23 @@ class NutriScoreApp {
       barcode: currentBarcode || "OCR-SCAN",
       officialGrade: predictedGrade,
       nutrition: nutrition,
-      ingredients: rawText
+      ingredients: rawText,
+      analysisType: analysisType,
+      probabilities: probabilities,
+      confidence: confidence,
+      termsFound: nlpRes.termsFound || []
     };
 
-    // Update Tuner sliders so user can view/adjust parsed values
-    Object.keys(nutrition).forEach(key => {
-      const shortKey = key.split("_")[0].replace("energy-kcal", "energy").replace("saturated-fat", "satFat");
-      if (this.sliders[shortKey] && nutrition[key] > 0) {
-        this.sliders[shortKey].value = nutrition[key];
-        if (this.badges[shortKey]) this.badges[shortKey].textContent = nutrition[key];
-      }
-    });
+    // Update Tuner sliders if nutrition values were parsed
+    if (foundCount > 0) {
+      Object.keys(nutrition).forEach(key => {
+        const shortKey = key.split("_")[0].replace("energy-kcal", "energy").replace("saturated-fat", "satFat");
+        if (this.sliders[shortKey] && nutrition[key] > 0) {
+          this.sliders[shortKey].value = nutrition[key];
+          if (this.badges[shortKey]) this.badges[shortKey].textContent = nutrition[key];
+        }
+      });
+    }
 
     if (this.notFoundCard) this.notFoundCard.style.display = "none";
     this.resultCard.style.display = "block";
@@ -953,19 +1007,20 @@ class NutriScoreApp {
 
   displayProduct(product, method) {
     this.currentProduct = product;
+    const isIngredientsOnly = product.analysisType === 'ingredients_only';
 
     const featVec = [
-      product.nutrition["energy-kcal_100g"],
-      product.nutrition["sugars_100g"],
-      product.nutrition["saturated-fat_100g"],
-      product.nutrition["salt_100g"],
-      product.nutrition["fiber_100g"],
-      product.nutrition["proteins_100g"]
+      product.nutrition["energy-kcal_100g"] || 0,
+      product.nutrition["sugars_100g"] || 0,
+      product.nutrition["saturated-fat_100g"] || 0,
+      product.nutrition["salt_100g"] || 0,
+      product.nutrition["fiber_100g"] || 0,
+      product.nutrition["proteins_100g"] || 0
     ];
     const mlRes = evaluateXGB(EMBEDDED_XGB, featVec);
     const officialRes = calculateOfficialNutriScore(product.nutrition);
 
-    const activeGrade = product.officialGrade || officialRes.grade || mlRes.grade;
+    const activeGrade = product.officialGrade || (isIngredientsOnly ? 'C' : (officialRes.grade || mlRes.grade));
     const gradeColor = GRADE_COLORS[activeGrade];
 
     document.getElementById("res-title").textContent = product.name;
@@ -978,76 +1033,115 @@ class NutriScoreApp {
       item.classList.toggle("active", g === activeGrade);
     });
 
-    document.getElementById("res-score-val").textContent = `${activeGrade} (FSAm-NPS Score: ${officialRes.score})`;
-    const conf = Math.round(mlRes.probabilities[mlRes.index] * 100);
+    if (isIngredientsOnly) {
+      document.getElementById("res-score-val").textContent = `${activeGrade} (Ingredients NLP AI Model)`;
+    } else {
+      document.getElementById("res-score-val").textContent = `${activeGrade} (FSAm-NPS Score: ${officialRes.score})`;
+    }
+
+    const probabilities = product.probabilities || mlRes.probabilities;
+    const gradeIdx = GRADES.indexOf(activeGrade);
+    const conf = product.confidence || Math.round((probabilities[gradeIdx >= 0 ? gradeIdx : 0] || 0.5) * 100);
     document.getElementById("res-conf-val").textContent = `${conf}% Confidence`;
 
     GRADES.forEach((g, idx) => {
       const seg = document.getElementById(`prob-${g.toLowerCase()}`);
       if (seg) {
-        const pct = Math.max(2, Math.round(mlRes.probabilities[idx] * 100));
+        const pct = Math.max(2, Math.round((probabilities[idx] || 0) * 100));
         seg.style.width = `${pct}%`;
         seg.title = `${g}: ${pct}%`;
       }
     });
 
     const n = product.nutrition;
-    document.getElementById("nut-energy").textContent = `${Math.round(n["energy-kcal_100g"])} kcal`;
-    
-    const sugarEl = document.getElementById("nut-sugars");
-    sugarEl.textContent = `${n["sugars_100g"].toFixed(1)} g`;
-    sugarEl.className = `nutrient-val ${n["sugars_100g"] > 15 ? 'bad' : n["sugars_100g"] <= 4.5 ? 'good' : ''}`;
+    const hasNutritionData = !isIngredientsOnly && Object.values(n).some(v => v > 0);
 
-    const satEl = document.getElementById("nut-satfat");
-    satEl.textContent = `${n["saturated-fat_100g"].toFixed(1)} g`;
-    satEl.className = `nutrient-val ${n["saturated-fat_100g"] > 5 ? 'bad' : n["saturated-fat_100g"] <= 1.5 ? 'good' : ''}`;
+    if (hasNutritionData) {
+      document.getElementById("nut-energy").textContent = `${Math.round(n["energy-kcal_100g"])} kcal`;
+      
+      const sugarEl = document.getElementById("nut-sugars");
+      sugarEl.textContent = `${n["sugars_100g"].toFixed(1)} g`;
+      sugarEl.className = `nutrient-val ${n["sugars_100g"] > 15 ? 'bad' : n["sugars_100g"] <= 4.5 ? 'good' : ''}`;
 
-    const saltEl = document.getElementById("nut-salt");
-    saltEl.textContent = `${n["salt_100g"].toFixed(2)} g`;
-    saltEl.className = `nutrient-val ${n["salt_100g"] > 1.2 ? 'bad' : n["salt_100g"] <= 0.3 ? 'good' : ''}`;
+      const satEl = document.getElementById("nut-satfat");
+      satEl.textContent = `${n["saturated-fat_100g"].toFixed(1)} g`;
+      satEl.className = `nutrient-val ${n["saturated-fat_100g"] > 5 ? 'bad' : n["saturated-fat_100g"] <= 1.5 ? 'good' : ''}`;
 
-    const fiberEl = document.getElementById("nut-fiber");
-    fiberEl.textContent = `${n["fiber_100g"].toFixed(1)} g`;
-    fiberEl.className = `nutrient-val ${n["fiber_100g"] >= 3.5 ? 'good' : ''}`;
+      const saltEl = document.getElementById("nut-salt");
+      saltEl.textContent = `${n["salt_100g"].toFixed(2)} g`;
+      saltEl.className = `nutrient-val ${n["salt_100g"] > 1.2 ? 'bad' : n["salt_100g"] <= 0.3 ? 'good' : ''}`;
 
-    const protEl = document.getElementById("nut-proteins");
-    protEl.textContent = `${n["proteins_100g"].toFixed(1)} g`;
-    protEl.className = `nutrient-val ${n["proteins_100g"] >= 6 ? 'good' : ''}`;
+      const fiberEl = document.getElementById("nut-fiber");
+      fiberEl.textContent = `${n["fiber_100g"].toFixed(1)} g`;
+      fiberEl.className = `nutrient-val ${n["fiber_100g"] >= 3.5 ? 'good' : ''}`;
 
-    this.renderDrivers(product.nutrition, activeGrade);
-    this.syncTunerSliders(product.nutrition);
+      const protEl = document.getElementById("nut-proteins");
+      protEl.textContent = `${n["proteins_100g"].toFixed(1)} g`;
+      protEl.className = `nutrient-val ${n["proteins_100g"] >= 6 ? 'good' : ''}`;
+    } else {
+      // Ingredients-only mode: show informative placeholder instead of 0
+      document.getElementById("nut-energy").textContent = "— (Ingredients)";
+      document.getElementById("nut-sugars").textContent = "—";
+      document.getElementById("nut-sugars").className = "nutrient-val";
+      document.getElementById("nut-satfat").textContent = "—";
+      document.getElementById("nut-satfat").className = "nutrient-val";
+      document.getElementById("nut-salt").textContent = "—";
+      document.getElementById("nut-salt").className = "nutrient-val";
+      document.getElementById("nut-fiber").textContent = "—";
+      document.getElementById("nut-fiber").className = "nutrient-val";
+      document.getElementById("nut-proteins").textContent = "—";
+      document.getElementById("nut-proteins").className = "nutrient-val";
+    }
+
+    this.renderDrivers(product.nutrition, activeGrade, isIngredientsOnly, product.termsFound);
+    if (hasNutritionData) {
+      this.syncTunerSliders(product.nutrition);
+    }
     this.saveToHistory(product, activeGrade);
   }
 
-  renderDrivers(nut, grade) {
+  renderDrivers(nut, grade, isIngredientsOnly = false, termsFound = []) {
     const list = document.getElementById("drivers-list");
     list.innerHTML = "";
     const drivers = [];
 
-    if (nut["sugars_100g"] > 15) {
-      drivers.push({ text: `High Sugar (${nut["sugars_100g"]}g) heavily penalizes the score toward Grade E`, pos: false });
-    } else if (nut["sugars_100g"] <= 4.0) {
-      drivers.push({ text: `Low Sugar (${nut["sugars_100g"]}g) boosts the rating toward Grade A`, pos: true });
-    }
+    if (isIngredientsOnly) {
+      if (termsFound && termsFound.length > 0) {
+        drivers.push({ 
+          text: `Ingredients identified: ${termsFound.slice(0, 8).join(", ")}`, 
+          pos: grade === 'A' || grade === 'B' 
+        });
+      }
+      drivers.push({ 
+        text: `Grade ${grade} predicted by on-device NLP model based on ingredient composition. Tap 'Tuner' to add exact nutrition facts.`, 
+        pos: grade === 'A' || grade === 'B' 
+      });
+    } else {
+      if (nut["sugars_100g"] > 15) {
+        drivers.push({ text: `High Sugar (${nut["sugars_100g"]}g) heavily penalizes the score toward Grade E`, pos: false });
+      } else if (nut["sugars_100g"] <= 4.0) {
+        drivers.push({ text: `Low Sugar (${nut["sugars_100g"]}g) boosts the rating toward Grade A`, pos: true });
+      }
 
-    if (nut["saturated-fat_100g"] > 5) {
-      drivers.push({ text: `Saturated Fat (${nut["saturated-fat_100g"]}g) drives score lower`, pos: false });
-    }
+      if (nut["saturated-fat_100g"] > 5) {
+        drivers.push({ text: `Saturated Fat (${nut["saturated-fat_100g"]}g) drives score lower`, pos: false });
+      }
 
-    if (nut["fiber_100g"] >= 3.0) {
-      drivers.push({ text: `Dietary Fibre (${nut["fiber_100g"]}g) provides positive nutritional points`, pos: true });
-    }
+      if (nut["fiber_100g"] >= 3.0) {
+        drivers.push({ text: `Dietary Fibre (${nut["fiber_100g"]}g) provides positive nutritional points`, pos: true });
+      }
 
-    if (nut["proteins_100g"] >= 5.0) {
-      drivers.push({ text: `Protein content (${nut["proteins_100g"]}g) boosts nutritional value`, pos: true });
-    }
+      if (nut["proteins_100g"] >= 5.0) {
+        drivers.push({ text: `Protein content (${nut["proteins_100g"]}g) boosts nutritional value`, pos: true });
+      }
 
-    if (nut["salt_100g"] > 1.0) {
-      drivers.push({ text: `Elevated Sodium/Salt (${nut["salt_100g"]}g) reduces grade`, pos: false });
-    }
+      if (nut["salt_100g"] > 1.0) {
+        drivers.push({ text: `Elevated Sodium/Salt (${nut["salt_100g"]}g) reduces grade`, pos: false });
+      }
 
-    if (drivers.length === 0) {
-      drivers.push({ text: "Balanced macro profile with moderate nutrition density", pos: true });
+      if (drivers.length === 0) {
+        drivers.push({ text: "Balanced macro profile with moderate nutrition density", pos: true });
+      }
     }
 
     drivers.forEach(d => {
