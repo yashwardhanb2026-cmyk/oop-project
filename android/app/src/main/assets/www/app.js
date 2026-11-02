@@ -155,6 +155,12 @@ function evaluateXGB(obj, x) {
 }
 
 function evaluateText(obj, text) {
+  if (typeof obj === 'string' && text === undefined) {
+    text = obj;
+    obj = EMBEDDED_TEXT;
+  }
+  if (!obj) obj = EMBEDDED_TEXT;
+  if (!text || typeof text !== 'string') text = "";
   const clean = text.toLowerCase();
   const toks = clean.match(/[a-z]{2,}/g) || [];
   const terms = [...toks];
@@ -877,6 +883,9 @@ class NutriScoreApp {
   }
 
   processOCRResult(rawText) {
+    if (typeof rawText !== 'string') {
+      rawText = rawText ? String(rawText) : "";
+    }
     if (!rawText || !rawText.trim()) {
       alert("No clear text detected from label. Please ensure good lighting and text focus, or try another photo.");
       return;
@@ -886,7 +895,7 @@ class NutriScoreApp {
     const { nutrition, foundCount } = this.parseNutritionFromText(rawText);
 
     // 2. Evaluate ingredients using on-device NLP model
-    const nlpRes = evaluateText(rawText);
+    const nlpRes = evaluateText(EMBEDDED_TEXT, rawText);
 
     // 3. Determine grade (XGBoost if >=3 nutrition values found, otherwise NLP model)
     let predictedGrade = nlpRes.grade;
